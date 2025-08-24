@@ -207,16 +207,16 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="batch_analyze_stocks",
-            description="批量分析多只股票并生成对比报告",
+            description="批量分析股票组合",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "preset": {
                         "type": "string",
-                        "enum": ["popular", "tech", "custom"],
-                        "description": "预设股票列表：popular(热门股票), tech(科技股票), custom(自定义)"
+                        "description": "预设组合：popular（热门股）或 tech（科技股）",
+                        "enum": ["popular", "tech"]
                     },
-                    "custom_stocks": {
+                    "stocks": {
                         "type": "array",
                         "items": {
                             "type": "array",
@@ -224,103 +224,120 @@ async def handle_list_tools() -> list[types.Tool]:
                             "minItems": 2,
                             "maxItems": 2
                         },
-                        "description": "自定义股票列表，格式：[["代码", "名称"], ...]"
+                        "description": "自定义股票列表"
                     },
                     "days": {
                         "type": "integer",
                         "description": "分析天数，默认180天",
                         "default": 180
                     }
-                },
-                "required": ["preset"]
+                }
             }
         )
     ]
 
 
 @server.call_tool()
-async def handle_call_tool(
-    name: str, arguments: dict | None
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     """Handle tool calls"""
+    analyzer = CleanSurgeAnalyzer()
     
     if name == "analyze_single_stock":
-        return await _analyze_single_stock(arguments or {})
-    elif name == "get_surge_summary":
-        return await _get_surge_summary(arguments or {})
-    elif name == "compare_stocks":
-        return await _compare_stocks(arguments or {})
-    elif name == "batch_analyze_stocks":
-        return await _batch_analyze_stocks(arguments or {})
-    else:
-        raise ValueError(f"Unknown tool: {name}")
-
-
-async def _analyze_single_stock(args: Dict[str, Any]) -> List[types.TextContent]:
-    """Analyze single stock"""
-    symbol = args.get("symbol")
-    name = args.get("name")
-    days = args.get("days", 180)
-    
-    if not symbol:
-        return [types.TextContent(type="text", text="Error: Missing stock symbol")]
-    
-    try:
-        analyzer = CleanSurgeAnalyzer()
+        symbol = arguments.get("symbol")
+        name = arguments.get("name", symbol)
+        days = arguments.get("days", 180)
+        
         result = await analyzer.analyze_stock(symbol, name, days)
-        
-        if not result:
-            return [types.TextContent(type="text", text=f"Failed to get data for stock {symbol}")]
-        
-        # Format result
-        output = _format_single_analysis(symbol, name or symbol, result)
-        
-        return [types.TextContent(type="text", text=output)]
-        
-    except Exception as e:
-        return [types.TextContent(type="text", text=f"Analysis failed: {str(e)}")]
-
-
-async def _get_surge_summary(args: Dict[str, Any]) -> List[types.TextContent]:
-    """Get surge summary"""
-    symbol = args.get("symbol")
-    name = args.get("name")
-    surge_threshold = args.get("surge_threshold", 5.0)
+        if result:
+            report = f"股票分析：{name} ({symbol})\n"
+            report += "=" * 50 + "\n"
+            report += f"当前价格：{result['basic']['current_price']:.2f}\n"
+            report += f"总回报率：{result['basic']['total_return']:.2f}%\n"
+            report += f"波动率：{result['basic']['volatility']:.2f}%\n"
+            report += f"价格区间：{result['basic']['min_price']:.2f} - {result['basic']['max_price']:.2f}\n"
+            report += f"暴涨次数：{len(result['surges'])}\n"
+            
+            if result['surges']:
+                report += "\n最近暴涨事件：\n"
+                for surge in result['surges'][:3]:
+                    report += f"  {surge['date']}: {surge['return']:.2f}% (成交量: {surge['volume']})\n"
+            
+            return [types.TextContent(type="text", text=report)]
+        else:
+            return [types.TextContent(type="text", text=f"无法获取 {symbol} 的数据，请检查股票代码是否正确")]
     
-    if not symbol:
-        return [types.TextContent(type="text", text="Error: Missing stock symbol")]
+    elif name == "get_surge_summary":
+        symbol = arguments.get("symbol")
+        name = arguments.get("name", symbol)
+        threshold = arguments.get("surge_threshold", 5.0)
+        
+        # 使用分析器获取数据
+        result = await analyzer.analyze_stock(symbol, name, 360)  # 1年数据
+        if result:
+            surges = [s for s in result['surges'] if s['return'] >= threshold]
+            
+            report = f"暴涨摘要：{name} ({symbol})\n"
+            report += "=" * 40 + "\n"
+            report += f"暴涨阈值：{threshold}%\n"
+            report += f"暴涨次数：{len(surges)}\n"
+            
+            if surges:
+                report += f"最大单日涨幅：{max(s['return'] for s in surges):.2f}%\n"
+                report += f"平均暴涨幅度：{sum(s['return'] for s in surges)/len(surges):.2f}%\n"
+                
+                report += "\n最近暴涨事件：\n"
+                for surge in surges[:5]:
+                    report += f"  {surge['date']}: {surge['return']:.2f}%\n"
+            
+            return [types.TextContent(type="text", text=report)]
+        else:
+            return [types.TextContent(type="text", text=f"无法获取 {symbol} 的数据")]
     
-    try:
-        analyzer = CleanSurgeAnalyzer()
-        analyzer.surge_threshold = surge_threshold
+    elif name == "compare_stocks":
+        stocks = arguments.get("stocks", [])
+        days = arguments.get("days", 180)
         
-        result = await analyzer.analyze_stock(symbol, name, 180)
+        comparison = []
+        for stock in stocks:
+            symbol, name = stock[0], stock[1]
+            result = await analyzer.analyze_stock(symbol, name, days)
+            if result:
+                comparison.append({
+                    'symbol': symbol,
+                    'name': name,
+                    'data': result
+                })
         
-        if not result:
-            return [types.TextContent(type="text", text=f"Failed to get data for stock {symbol}")]
-        
-        # Generate summary
-        output = _format_surge_summary(symbol, name or symbol, result, surge_threshold)
-        
-        return [types.TextContent(type="text", text=output)]
-        
-    except Exception as e:
-        return [types.TextContent(type="text", text=f"Summary failed: {str(e)}")]
-
-
-async def _compare_stocks(args: Dict[str, Any]) -> List[types.TextContent]:
-    """Compare stocks"""
-    stocks = args.get("stocks", [])
-    days = args.get("days", 180)
+        if comparison:
+            report = "股票对比分析\n"
+            report += "=" * 50 + "\n"
+            
+            for item in comparison:
+                data = item['data']
+                report += f"\n{item['name']} ({item['symbol']}):\n"
+                report += f"  总回报率：{data['basic']['total_return']:.2f}%\n"
+                report += f"  波动率：{data['basic']['volatility']:.2f}%\n"
+                report += f"  暴涨次数：{len(data['surges'])}\n"
+            
+            return [types.TextContent(type="text", text=report)]
+        else:
+            return [types.TextContent(type="text", text="无法获取对比数据")]
     
-    if len(stocks) < 2:
-        return [types.TextContent(type="text", text="Error: Need at least 2 stocks for comparison")]
-    
-    try:
-        analyzer = CleanSurgeAnalyzer()
+    elif name == "batch_analyze_stocks":
+        preset = arguments.get("preset")
+        custom_stocks = arguments.get("stocks", [])
+        days = arguments.get("days", 180)
+        
+        if preset == "popular":
+            stocks = POPULAR_STOCKS
+        elif preset == "tech":
+            stocks = TECH_STOCKS
+        else:
+            stocks = custom_stocks
+        
         results = []
-        
-        for symbol, name in stocks:
+        for stock in stocks:
+            symbol, name = stock[0], stock[1]
             result = await analyzer.analyze_stock(symbol, name, days)
             if result:
                 results.append({
@@ -329,199 +346,27 @@ async def _compare_stocks(args: Dict[str, Any]) -> List[types.TextContent]:
                     'data': result
                 })
         
-        if len(results) < 2:
-            return [types.TextContent(type="text", text="Comparison failed: Insufficient valid data")]
-        
-        # Format comparison result
-        output = _format_comparison(results)
-        
-        return [types.TextContent(type="text", text=output)]
-        
-    except Exception as e:
-        return [types.TextContent(type="text", text=f"Comparison failed: {str(e)}")]
-
-
-async def _batch_analyze_stocks(args: Dict[str, Any]) -> List[types.TextContent]:
-    """Batch analyze stocks"""
-    preset = args.get("preset")
-    custom_stocks = args.get("custom_stocks", [])
-    days = args.get("days", 180)
+        if results:
+            report = f"批量分析结果 ({preset or '自定义'})\n"
+            report += "=" * 50 + "\n"
+            
+            for item in results:
+                data = item['data']
+                report += f"\n{item['name']} ({item['symbol']}):\n"
+                report += f"  总回报率：{data['basic']['total_return']:.2f}%\n"
+                report += f"  波动率：{data['basic']['volatility']:.2f}%\n"
+                report += f"  暴涨次数：{len(data['surges'])}\n"
+            
+            return [types.TextContent(type="text", text=report)]
+        else:
+            return [types.TextContent(type="text", text="批量分析失败")]
     
-    # Determine stock list
-    if preset == "popular":
-        stock_list = POPULAR_STOCKS
-    elif preset == "tech":
-        stock_list = TECH_STOCKS
-    elif preset == "custom":
-        if not custom_stocks:
-            return [types.TextContent(type="text", text="Error: Custom mode requires stock list")]
-        stock_list = custom_stocks
-    else:
-        return [types.TextContent(type="text", text="Error: Invalid preset type")]
-    
-    try:
-        analyzer = CleanSurgeAnalyzer()
-        results = []
-        
-        for symbol, name in stock_list:
-            result = await analyzer.analyze_stock(symbol, name, days)
-            if result:
-                results.append({
-                    'symbol': symbol,
-                    'name': name,
-                    'surge_count': len(result['surges']),
-                    'total_return': result['basic']['total_return'],
-                    'volatility': result['basic']['volatility']
-                })
-        
-        if not results:
-            return [types.TextContent(type="text", text="Batch analysis failed")]
-        
-        # Format result
-        output = _format_batch_analysis(results, preset)
-        
-        return [types.TextContent(type="text", text=output)]
-        
-    except Exception as e:
-        return [types.TextContent(type="text", text=f"Batch analysis failed: {str(e)}")]
-
-
-def _format_single_analysis(symbol: str, name: str, result: Dict) -> str:
-    """Format single stock analysis result"""
-    basic = result['basic']
-    surges = result['surges']
-    volume = result['volume']
-    company = result['company']
-    
-    output = f"Stock Analysis Report: {name}({symbol})\n"
-    output += "=" * 50 + "\n\n"
-    
-    # Basic info
-    output += f"Basic Performance:\n"
-    output += f"  Current Price: ${basic['current_price']:.2f}\n"
-    output += f"  Total Return: {basic['total_return']:+.2f}%\n"
-    output += f"  Volatility: {basic['volatility']:.2f}%\n"
-    output += f"  Price Range: ${basic['min_price']:.2f} - ${basic['max_price']:.2f}\n\n"
-    
-    # Surge analysis
-    output += f"Surge Analysis:\n"
-    output += f"  Surge Count: {len(surges)} times\n"
-    if surges:
-        max_surge = max(s['return'] for s in surges)
-        output += f"  Max Surge: +{max_surge:.2f}%\n"
-        output += f"  Recent Surge: {surges[0]['date']} (+{surges[0]['return']:.2f}%)\n"
-    output += "\n"
-    
-    # Volume analysis
-    output += f"Volume Analysis:\n"
-    output += f"  Average Volume: {volume['avg_volume']:,.0f}\n"
-    output += f"  Volume Spikes: {volume['spikes']} times\n"
-    output += f"  Max Volume: {volume['max_volume']:,.0f}\n\n"
-    
-    # Company info
-    if company:
-        output += f"Company Info:\n"
-        for key, value in list(company.items())[:5]:  # Show first 5 items
-            output += f"  {key}: {value}\n"
-    
-    return output
-
-
-def _format_surge_summary(symbol: str, name: str, result: Dict, threshold: float) -> str:
-    """Format surge summary"""
-    basic = result['basic']
-    surges = result['surges']
-    
-    output = f"Surge Summary: {name}({symbol})\n"
-    output += "-" * 30 + "\n"
-    
-    output += f"Current Price: ${basic['current_price']:.2f}\n"
-    output += f"Total Return: {basic['total_return']:+.2f}%\n"
-    output += f"Surge Count: {len(surges)} times (>{threshold}%)\n"
-    
-    if surges:
-        recent_surge = surges[0]
-        max_surge = max(s['return'] for s in surges)
-        output += f"Max Surge: +{max_surge:.2f}%\n"
-        output += f"Recent Surge: {recent_surge['date']} (+{recent_surge['return']:.2f}%)\n"
-    
-    # Surge frequency rating
-    surge_count = len(surges)
-    if surge_count >= 10:
-        rating = "Very High"
-    elif surge_count >= 5:
-        rating = "High"
-    elif surge_count >= 2:
-        rating = "Medium"
-    else:
-        rating = "Low"
-    
-    output += f"Surge Frequency: {rating}\n"
-    
-    return output
-
-
-def _format_comparison(results: List[Dict]) -> str:
-    """Format comparison result"""
-    output = "Stock Comparison Analysis\n"
-    output += "=" * 40 + "\n\n"
-    
-    # Table header
-    output += f"{'Stock':8s} {'Symbol':8s} {'Return':8s} {'Surges':7s} {'Volatility':10s}\n"
-    output += "-" * 50 + "\n"
-    
-    # Data rows
-    for item in results:
-        symbol = item['symbol']
-        name = item['name']
-        basic = item['data']['basic']
-        surges = item['data']['surges']
-        
-        output += f"{name[:6]:8s} {symbol:8s} {basic['total_return']:+6.1f}% {len(surges):5d} {basic['volatility']:8.1f}%\n"
-    
-    # Analysis conclusion
-    best_return = max(results, key=lambda x: x['data']['basic']['total_return'])
-    most_surges = max(results, key=lambda x: len(x['data']['surges']))
-    
-    output += f"\nBest Performance: {best_return['name']} (Return: {best_return['data']['basic']['total_return']:+.1f}%)\n"
-    output += f"Most Surges: {most_surges['name']} ({len(most_surges['data']['surges'])} times)\n"
-    
-    return output
-
-
-def _format_batch_analysis(results: List[Dict], preset: str) -> str:
-    """Format batch analysis result"""
-    output = f"Batch Stock Analysis Report ({preset})\n"
-    output += "=" * 50 + "\n\n"
-    
-    # Sort and show top 5
-    surge_ranking = sorted(results, key=lambda x: x['surge_count'], reverse=True)
-    return_ranking = sorted(results, key=lambda x: x['total_return'], reverse=True)
-    
-    output += "Top 5 by Surge Frequency:\n"
-    for i, stock in enumerate(surge_ranking[:5], 1):
-        output += f"  {i}. {stock['name']} ({stock['symbol']}): {stock['surge_count']} times, {stock['total_return']:+.1f}%\n"
-    
-    output += "\nTop 5 by Return:\n"
-    for i, stock in enumerate(return_ranking[:5], 1):
-        output += f"  {i}. {stock['name']} ({stock['symbol']}): {stock['total_return']:+.1f}%, {stock['surge_count']} surges\n"
-    
-    # Statistics
-    total_stocks = len(results)
-    avg_return = sum(s['total_return'] for s in results) / total_stocks
-    total_surges = sum(s['surge_count'] for s in results)
-    
-    output += f"\nStatistics Summary:\n"
-    output += f"  Analyzed Stocks: {total_stocks}\n"
-    output += f"  Average Return: {avg_return:+.1f}%\n"
-    output += f"  Total Surges: {total_surges}\n"
-    output += f"  Average Surges: {total_surges/total_stocks:.1f} per stock\n"
-    
-    return output
+    return [types.TextContent(type="text", text="未知工具")]
 
 
 async def main():
     """Main function"""
+    # Run server using stdin/stdout streams
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -529,11 +374,8 @@ async def main():
             InitializationOptions(
                 server_name="surge-analysis-server",
                 server_version="1.0.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+                capabilities=server.get_capabilities()
+            )
         )
 
 
