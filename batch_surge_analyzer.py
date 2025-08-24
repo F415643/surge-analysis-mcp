@@ -198,55 +198,37 @@ TECH_STOCKS = [
     ("300059", "东方财富"),
     ("300750", "宁德时代"),
     ("002594", "比亚迪"),
-    ("000725", "京东方A"),
-    ("002230", "科大讯飞"),
-    ("300014", "亿纬锂能"),
-    ("688981", "中芯国际"),
-    ("300760", "迈瑞医疗")
+    ("603986", "兆易创新"),
+    ("603160", "汇顶科技"),
+    ("300760", "迈瑞医疗"),
+    ("002371", "北方华创"),
+    ("300124", "汇川技术")
 ]
 
+BANK_STOCKS = [
+    ("000001", "平安银行"),
+    ("600036", "招商银行"),
+    ("601398", "工商银行"),
+    ("601288", "农业银行"),
+    ("601988", "中国银行"),
+    ("601939", "建设银行"),
+    ("600000", "浦发银行"),
+    ("600016", "民生银行"),
+    ("601166", "兴业银行"),
+    ("600030", "中信证券")
+]
 
 async def main():
     """主函数"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='批量股票暴涨分析器')
-    parser.add_argument('--preset', choices=['popular', 'tech'], help='使用预设股票列表')
-    parser.add_argument('--custom', help='自定义股票列表文件 (JSON格式)')
-    parser.add_argument('--days', type=int, default=180, help='分析天数')
-    parser.add_argument('--save', help='保存结果文件名')
-    
-    args = parser.parse_args()
-    
-    # 确定股票列表
-    if args.preset == 'popular':
-        stock_list = POPULAR_STOCKS
-        print("📊 使用热门股票列表")
-    elif args.preset == 'tech':
-        stock_list = TECH_STOCKS
-        print("🔬 使用科技股票列表")
-    elif args.custom:
-        try:
-            with open(args.custom, 'r', encoding='utf-8') as f:
-                stock_list = json.load(f)
-            print(f"📁 使用自定义股票列表: {args.custom}")
-        except Exception as e:
-            print(f"❌ 读取自定义列表失败: {e}")
-            return
-    else:
-        # 默认使用热门股票
-        stock_list = POPULAR_STOCKS[:5]  # 只分析前5只避免太长
-        print("📊 使用默认股票列表 (前5只热门股票)")
-    
-    # 执行批量分析
     analyzer = BatchSurgeAnalyzer()
-    results = await analyzer.analyze_stock_list(stock_list, args.days)
+    
+    # 示例：分析科技股组合
+    results = await analyzer.analyze_stock_list(TECH_STOCKS, days=180)
     
     # 保存结果
-    if args.save:
-        analyzer.save_results(args.save)
-    else:
-        analyzer.save_results()
+    analyzer.save_results()
+    
+    print(f"\n✅ 批量分析完成！共分析了 {len(results)} 只股票")
 
 
 if __name__ == "__main__":
