@@ -198,63 +198,45 @@ class UniversalSurgeAnalyzer:
         # 基于数据生成逻辑分析
         surge_count = len(surges)
         volume_spike_count = len(volume['spikes'])
-        total_return = basic['total_return']
         
-        print(f"💡 技术面分析:")
-        if surge_count > 10:
-            print(f"  🔥 暴涨频率极高: {surge_count}个暴涨日")
-        elif surge_count > 5:
-            print(f"  📈 暴涨频率较高: {surge_count}个暴涨日")
+        # 暴涨特征分析
+        if surge_count > 5:
+            print("📈 暴涨特征: 频繁暴涨型")
+            print("  说明: 该股票在过去半年内出现多次单日暴涨")
+            print("  投资建议: 适合短线交易，关注成交量配合")
+        elif surge_count > 0:
+            print("📊 暴涨特征: 间歇暴涨型")
+            print("  说明: 偶尔出现暴涨，可能受消息面影响")
+            print("  投资建议: 关注消息面变化，谨慎追高")
         else:
-            print(f"  📊 暴涨频率一般: {surge_count}个暴涨日")
+            print("📉 暴涨特征: 稳健型")
+            print("  说明: 价格波动相对平稳，较少出现暴涨")
+            print("  投资建议: 适合长期持有，关注基本面变化")
         
-        if volume_spike_count > 5:
-            print(f"  🚀 资金关注度高: {volume_spike_count}个成交量异常日")
-        elif volume_spike_count > 2:
-            print(f"  💰 资金关注度中等: {volume_spike_count}个成交量异常日")
-        
-        if total_return > 50:
-            print(f"  🎯 期间表现优异: 涨幅{total_return:.1f}%")
-        elif total_return > 20:
-            print(f"  📊 期间表现良好: 涨幅{total_return:.1f}%")
-        elif total_return > 0:
-            print(f"  📈 期间表现平稳: 涨幅{total_return:.1f}%")
+        # 成交量配合分析
+        if volume_spike_count > surge_count:
+            print("🔥 成交量配合: 量价齐升型")
+            print("  特征: 成交量放大往往伴随价格上涨")
+            print("  策略: 关注放量突破机会")
         else:
-            print(f"  📉 期间表现疲弱: 跌幅{abs(total_return):.1f}%")
+            print("📊 成交量配合: 温和放量型")
+            print("  特征: 成交量变化相对温和")
+            print("  策略: 适合稳健操作")
         
-        # 行业分析
-        industry = company.get('行业', '')
-        if industry:
-            print(f"\n💼 行业特征:")
-            print(f"  所属行业: {industry}")
-            
-            # 根据行业给出分析
-            if any(keyword in industry for keyword in ['科技', '软件', '互联网', '电子', '通信']):
-                print(f"  🔥 科技股特征: 政策敏感度高，成长性强")
-            elif any(keyword in industry for keyword in ['医药', '生物', '医疗']):
-                print(f"  💊 医药股特征: 创新驱动，政策影响大")
-            elif any(keyword in industry for keyword in ['新能源', '电池', '光伏']):
-                print(f"  🔋 新能源特征: 政策红利，成长空间大")
-        
-        print(f"\n⚠️ 风险提示:")
-        if surge_count > 15:
-            print(f"  • 暴涨频率过高，注意回调风险")
-        if basic['volatility'] > 5:
-            print(f"  • 波动率较高({basic['volatility']:.1f}%)，风险较大")
-        if total_return > 100:
-            print(f"  • 涨幅过大，注意获利回吐压力")
-        
-        print(f"  • 市场情绪变化风险")
-        print(f"  • 政策环境变化影响")
-        print(f"  • 基本面变化风险")
+        # 风险提示
+        print("\n⚠️ 风险提示:")
+        print("  1. 历史表现不代表未来收益")
+        print("  2. 暴涨股票波动较大，注意风险控制")
+        print("  3. 建议结合基本面和技术面综合判断")
+        print("  4. 设置合理的止损和止盈点位")
 
 
 async def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='通用股票暴涨分析器')
-    parser.add_argument('symbol', help='股票代码 (如: 000158)')
+    parser.add_argument('symbol', help='股票代码')
     parser.add_argument('--name', help='股票名称', default=None)
-    parser.add_argument('--days', type=int, help='分析天数', default=180)
+    parser.add_argument('--days', type=int, default=180, help='分析天数')
     
     args = parser.parse_args()
     
