@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "surge-analysis": {
+      "command": "python",
+      "args": [
+        "surge_analysis_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "analyze_single_stock",
+        "get_surge_summary",
+        "compare_stocks",
+        "batch_analyze_stocks"
+      ]
+    }
+  }
+}
